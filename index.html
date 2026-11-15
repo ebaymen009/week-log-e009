@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>週ログ</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#171b22; --line:#262c36;
+    --text:#e8ecf1; --sub:#8b95a5;
+    --accent:#3ddc97; --accent2:#4aa8ff; --skip:#ff6b6b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    min-height:100vh;display:flex;justify-content:center;padding:24px 16px 48px;
+  }
+  main{width:100%;max-width:440px}
+  h1{font-size:20px;letter-spacing:.08em;margin-bottom:4px}
+  .date{color:var(--sub);font-size:14px;margin-bottom:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px}
+  .label{color:var(--sub);font-size:13px;margin-bottom:12px}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  button{
+    font:inherit;font-size:18px;font-weight:700;padding:20px 8px;border-radius:14px;
+    border:2px solid var(--line);background:transparent;color:var(--text);cursor:pointer;
+    transition:transform .08s, background .15s, border-color .15s;
+  }
+  button:active{transform:scale(.97)}
+  button.done.on{background:var(--accent);border-color:var(--accent);color:#06281a}
+  button.skip.on{background:var(--skip);border-color:var(--skip);color:#2d0707}
+  button:hover:not(.on){border-color:var(--sub)}
+  .status{margin-top:12px;font-size:14px;color:var(--sub);min-height:1.4em}
+  .rate{display:flex;align-items:baseline;gap:6px}
+  .rate .num{font-size:64px;font-weight:800;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums}
+  .rate .pct{font-size:24px;color:var(--accent)}
+  .rate .frac{margin-left:auto;color:var(--sub);font-size:14px}
+  .bar{height:14px;background:var(--line);border-radius:99px;overflow:hidden;margin:16px 0 14px}
+  .bar > i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width .5s ease}
+  .dots{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center}
+  .dot{font-size:11px;color:var(--sub)}
+  .dot b{display:block;width:26px;height:26px;line-height:26px;margin:4px auto 0;border-radius:50%;
+    border:2px solid var(--line);font-size:12px;color:var(--sub);font-weight:500}
+  .dot.done b{background:var(--accent);border-color:var(--accent);color:#06281a}
+  .dot.skip b{border-color:var(--skip);color:var(--skip)}
+  .dot.today b{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--accent2)}
+  h2{font-size:15px;margin:24px 4px 10px;color:var(--sub);font-weight:600}
+  .week{display:grid;grid-template-columns:76px 1fr 48px;align-items:center;gap:10px;
+    padding:12px 4px;border-bottom:1px solid var(--line);font-size:13px}
+  .week:last-child{border-bottom:none}
+  .week .mini{height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+  .week .mini i{display:block;height:100%;background:var(--accent2);border-radius:99px}
+  .week .mini i.good{background:var(--accent)}
+  .week .p{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .empty{color:var(--sub);font-size:13px;padding:8px 4px}
+  .reset{display:block;margin:28px auto 0;background:none;border:none;color:var(--sub);font-size:12px;
+    padding:8px;text-decoration:underline;font-weight:400}
+</style>
+</head>
+<body>
+<main>
+  <h1>週ログ</h1>
+  <div class="date" id="today"></div>
+
+  <section class="card">
+    <div class="label">今日は運動した？</div>
+    <div class="btns">
+      <button class="done" id="btnDone">やった</button>
+      <button class="skip" id="btnSkip">やらなかった</button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="card">
+    <div class="label">今週の達成率（月〜日）</div>
+    <div class="rate">
+      <span class="num" id="rateNum">0</span><span class="pct">%</span>
+      <span class="frac" id="rateFrac">0 / 7日</span>
+    </div>
+    <div class="bar"><i id="rateBar"></i></div>
+    <div class="dots" id="dots"></div>
+  </section>
+
+  <h2>過去の週</h2>
+  <section class="card" id="history"></section>
+
+  <button class="reset" id="reset">データをすべて消す</button>
+</main>
+
+<script>
+(function(){
+  var KEY = "weeklog.v1";
+  var DAYS = ["月","火","水","木","金","土","日"];
+
+  function load(){
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch(e){ return {}; }
+  }
+  function save(d){
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch(e){}
+  }
+  var data = load();
+
+  function key(d){
+    var m = String(d.getMonth()+1).padStart(2,"0");
+    var day = String(d.getDate()).padStart(2,"0");
+    return d.getFullYear()+"-"+m+"-"+day;
+  }
+  function mondayOf(d){
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var off = (x.getDay()+6)%7; // 月=0
+    x.setDate(x.getDate()-off);
+    return x;
+  }
+  function addDays(d,n){
+    var x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate()+n);
+    return x;
+  }
+  function weekDone(mon){
+    var c = 0;
+    for(var i=0;i<7;i++){ if(data[key(addDays(mon,i))]==="done") c++; }
+    return c;
+  }
+
+  var now = new Date();
+  var todayKey = key(now);
+  var thisMon = mondayOf(now);
+
+  document.getElementById("today").textContent =
+    now.getFullYear()+"年"+(now.getMonth()+1)+"月"+now.getDate()+"日（"+DAYS[(now.getDay()+6)%7]+"）";
+
+  var btnDone = document.getElementById("btnDone");
+  var btnSkip = document.getElementById("btnSkip");
+
+  function set(v){
+    if(data[todayKey]===v){ delete data[todayKey]; } else { data[todayKey]=v; }
+    save(data);
+    render();
+  }
+  btnDone.addEventListener("click", function(){ set("done"); });
+  btnSkip.addEventListener("click", function(){ set("skip"); });
+
+  document.getElementById("reset").addEventListener("click", function(){
+    if(confirm("記録をすべて消します。よろしいですか？")){
+      data = {}; save(data); render();
+    }
+  });
+
+  function render(){
+    var v = data[todayKey];
+    btnDone.classList.toggle("on", v==="done");
+    btnSkip.classList.toggle("on", v==="skip");
+    document.getElementById("status").textContent =
+      v==="done" ? "ナイス！今日の分は記録しました。もう一度押すと取り消せます。" :
+      v==="skip" ? "今日は休み。明日またやろう。もう一度押すと取り消せます。" :
+      "まだ記録していません。";
+
+    var c = weekDone(thisMon);
+    var pct = Math.round(c/7*100);
+    document.getElementById("rateNum").textContent = pct;
+    document.getElementById("rateFrac").textContent = c+" / 7日";
+    document.getElementById("rateBar").style.width = pct+"%";
+
+    var dots = "";
+    for(var i=0;i<7;i++){
+      var d = addDays(thisMon,i), k = key(d), st = data[k]||"";
+      var cls = "dot"+(st?" "+st:"")+(k===todayKey?" today":"");
+      var mark = st==="done" ? "✓" : st==="skip" ? "–" : d.getDate();
+      dots += '<div class="'+cls+'">'+DAYS[i]+'<b>'+mark+'</b></div>';
+    }
+    document.getElementById("dots").innerHTML = dots;
+
+    // 過去の週：記録がある最も古い週 〜 先週
+    var keys = Object.keys(data).sort();
+    var hist = document.getElementById("history");
+    if(!keys.length){ hist.innerHTML = '<div class="empty">まだ記録がありません。</div>'; return; }
+    var first = mondayOf(new Date(keys[0]+"T00:00:00"));
+    var rows = "";
+    var m = addDays(thisMon,-7);
+    while(m >= first){
+      var n = weekDone(m), p = Math.round(n/7*100);
+      var e = addDays(m,6);
+      var range = (m.getMonth()+1)+"/"+m.getDate()+"〜"+(e.getMonth()+1)+"/"+e.getDate();
+      rows += '<div class="week"><span>'+range+'</span>'+
+              '<div class="mini"><i class="'+(p>=70?"good":"")+'" style="width:'+p+'%"></i></div>'+
+              '<span class="p">'+p+'%</span></div>';
+      m = addDays(m,-7);
+    }
+    hist.innerHTML = rows || '<div class="empty">過去の週はまだありません。来週から表示されます。</div>';
+  }
+  render();
+})();
+</script>
+</body>
+</html>
